@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualizador de Google Sheets en Tiempo Real</title>
+    <meta name="description" content="Visualizador automático de datos de Google Sheets con actualización cada minuto">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #1a202c;
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: #718096;
+            font-size: 14px;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            margin-top: 16px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            color: #2d3748;
+        }
+
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #e2e8f0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #48bb78;
+            border-radius: 50%;
+        }
+
+        .last-update {
+            color: #718096;
+            font-size: 14px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        th {
+            padding: 16px 24px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #e2e8f0;
+            transition: background 0.2s;
+        }
+
+        tbody tr:hover {
+            background: #f7fafc;
+        }
+
+        td {
+            padding: 16px 24px;
+            color: #2d3748;
+            font-size: 14px;
+        }
+
+        .loading-screen {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            flex-direction: column;
+            color: white;
+        }
+
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+
+        .error-screen {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .error-card {
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            max-width: 500px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .error-icon {
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 16px;
+            color: #f56565;
+        }
+
+        .error-card h2 {
+            color: #1a202c;
+            margin-bottom: 8px;
+            font-size: 24px;
+        }
+
+        .error-card p {
+            color: #718096;
+            margin-bottom: 8px;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 24px;
+            color: white;
+            font-size: 14px;
+        }
+
+        .no-data {
+            padding: 48px;
+            text-align: center;
+            color: #718096;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="loading-screen">
+        <div class="loading-spinner"></div>
+        <h2>Cargando datos...</h2>
+    </div>
+
+    <!-- Error Screen -->
+    <div id="errorScreen" class="error-screen hidden">
+        <div class="error-card">
+            <div class="error-icon">⚠️</div>
+            <h2>Error</h2>
+            <p id="errorMessage"></p>
+            <p style="font-size: 12px; margin-top: 16px;">
+                Asegúrate de que la planilla sea pública: Archivo → Compartir → Cualquier persona con el enlace
+            </p>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div id="mainContent" class="container hidden">
+        <div class="header">
+            <h1>Visualizador de Datos</h1>
+            <p>Actualización automática cada minuto</p>
+            
+            <div class="status-bar">
+                <div class="badge">
+                    <div id="statusIndicator" class="status-dot"></div>
+                    <span id="statusText">Conectado</span>
+                </div>
+                <div class="last-update">
+                    Última actualización: <span id="lastUpdate">--:--:--</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="table-container">
+                <table id="dataTable">
+                    <thead id="tableHead"></thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+                <div id="noData" class="no-data hidden">
+                    No hay datos disponibles
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Los datos se actualizan automáticamente cada 60 segundos desde Google Sheets</p>
+        </div>
+    </div>
+
+    <script>
+        const SHEET_ID = '19FQzAT3KKA5Lkl-OWpltfQF499K8jM67QHWrzfZrEyU';
+        const GID = '0';
+        let isFirstLoad = true;
+
+        async function fetchSheetData() {
+            try {
+                // Show refreshing indicator
+                const statusIndicator = document.getElementById('statusIndicator');
+                const statusText = document.getElementById('statusText');
+                
+                if (!isFirstLoad) {
+                    statusIndicator.className = 'spinner';
+                    statusText.textContent = 'Actualizando...';
+                }
+
+                const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
+                const response = await fetch(csvUrl);
+
+                if (!response.ok) {
+                    throw new Error('Error al acceder a la planilla. Asegúrate de que sea pública.');
+                }
+
+                const csvText = await response.text();
+                const lines = csvText.split('\n').filter(line => line.trim());
+
+                if (lines.length === 0) {
+                    throw new Error('La planilla está vacía');
+                }
+
+                // Parse CSV
+                const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
+                const rows = lines.slice(1).map(line => 
+                    line.split(',').map(cell => cell.replace(/^"|"$/g, '').trim())
+                );
+
+                // Update table
+                updateTable(headers, rows);
+
+                // Update status
+                const now = new Date();
+                document.getElementById('lastUpdate').textContent = now.toLocaleTimeString('es-ES');
+                statusIndicator.className = 'status-dot';
+                statusText.textContent = 'Conectado';
+
+                // Hide loading/error, show content
+                if (isFirstLoad) {
+                    document.getElementById('loadingScreen').classList.add('hidden');
+                    document.getElementById('errorScreen').classList.add('hidden');
+                    document.getElementById('mainContent').classList.remove('hidden');
+                    isFirstLoad = false;
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                
+                if (isFirstLoad) {
+                    document.getElementById('loadingScreen').classList.add('hidden');
+                    document.getElementById('errorScreen').classList.remove('hidden');
+                    document.getElementById('errorMessage').textContent = error.message;
+                } else {
+                    const statusIndicator = document.getElementById('statusIndicator');
+                    const statusText = document.getElementById('statusText');
+                    statusIndicator.className = 'status-dot';
+                    statusIndicator.style.background = '#f56565';
+                    statusText.textContent = 'Error de conexión';
+                }
+            }
+        }
+
+        function updateTable(headers, rows) {
+            const tableHead = document.getElementById('tableHead');
+            const tableBody = document.getElementById('tableBody');
+            const noData = document.getElementById('noData');
+
+            // Update headers
+            tableHead.innerHTML = `
+                <tr>
+                    ${headers.map(header => `<th>${header}</th>`).join('')}
+                </tr>
+            `;
+
+            // Update rows
+            if (rows.length === 0) {
+                tableBody.innerHTML = '';
+                noData.classList.remove('hidden');
+            } else {
+                noData.classList.add('hidden');
+                tableBody.innerHTML = rows.map(row => `
+                    <tr>
+                        ${row.map(cell => `<td>${cell}</td>`).join('')}
+                    </tr>
+                `).join('');
+            }
+        }
+
+        // Initial load
+        fetchSheetData();
+
+        // Auto-refresh every 60 seconds
+        setInterval(fetchSheetData, 60000);
+    </script>
+</body>
+</html>
